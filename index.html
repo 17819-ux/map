@@ -1,9 +1,8 @@
-
 <!doctype html>
 <html lang="th">
 <head>
 <meta charset="utf-8" />
-<title>Flood Check — 3D MAP </title>
+<title>Flood Check — 3D MAP</title>
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <link href="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css" rel="stylesheet" />
 <style>
@@ -12,55 +11,138 @@ html,body{height:100%;margin:0;padding:0;font-family:system-ui,Segoe UI,Roboto,A
 .panel{
   position:absolute;left:12px;top:12px;z-index:10;
   background:rgba(255,255,255,0.95);padding:12px;border-radius:10px;
-  box-shadow:0 8px 20px rgba(0,0,0,0.12);width:360px;
+  box-shadow:0 8px 20px rgba(0,0,0,0.12);width:380px;
 }
-.row{display:flex;gap:8px;align-items:center;margin:8px 0;}
+.row{display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap}
 input[type="text"]{flex:1;padding:8px;border:1px solid #ddd;border-radius:8px}
 button{padding:8px 10px;border-radius:8px;border:0;background:#0b63d6;color:#fff;cursor:pointer}
 button.secondary{background:#e8eaed;color:#111}
+select, input[type="range"]{padding:7px;border:1px solid #ddd;border-radius:8px}
 .status{font-size:13px;color:#333;margin-top:6px;}
 small.muted{display:block;color:#666;margin-top:6px}
+.legend{display:flex;gap:12px;align-items:center;margin-top:8px;font-size:12px;color:#333}
+.legend .box{width:14px;height:14px;border-radius:3px;border:1px solid #999}
+.flex-1{flex:1}
+.label{font-size:12px;color:#333}
+.val{min-width:38px;text-align:right;font-variant-numeric:tabular-nums}
 </style>
 </head>
 <body>
 <div id="map"></div>
+
 <div class="panel">
-<div style="font-weight:800;margin-bottom:6px">🗺️ Flood Check</div>
-<div class="row">
-  <label style="min-width:110px">ค้นหาพื้นที่</label>
-  <input id="search" type="text" placeholder="ค้นหาพื้นที่น้ำท่วม" />
-  <button id="btnSearch">🔍</button>
-</div>
-<div class="row">
-  <button id="btnLocate" class="secondary">📍 ตำแหน่งของฉัน</button>
-  <button id="btnTilt">⛰ สลับเอียงแผนที่</button>
-</div>
-<div class="status" id="status">สถานะ: รอการค้นหา</div>
-<small class="muted">W/A/S/D = เคลื่อนที่, Arrow = หมุน/เอียง, Tilt = กล้องเอียง 3D</small>
+  <div style="font-weight:800;margin-bottom:6px">🗺️ Flood Check</div>
+
+  <div class="row">
+    <label style="min-width:110px">ค้นหาพื้นที่</label>
+    <input id="search" type="text" placeholder="เช่น อุบลราชธานี, บางบัวทอง" />
+    <button id="btnSearch">🔍</button>
+  </div>
+
+  <div class="row">
+    <button id="btnLocate" class="secondary">📍 ตำแหน่งของฉัน</button>
+    <button id="btnTilt">⛰ สลับเอียงแผนที่</button>
+    <div class="flex-1"></div>
+    <label class="label">พื้นฐาน:</label>
+    <select id="basemap">
+      <option value="osm" selected>แผนที่</option>
+      <option value="sat">ดาวเทียม</option>
+    </select>
+  </div>
+
+  <div class="row">
+    <label class="label" style="min-width:110px">นูนภูมิประเทศ</label>
+    <input id="exaggeration" type="range" min="1" max="3" step="0.1" value="1.3" class="flex-1"/>
+    <div class="val"><span id="exVal">1.3</span>x</div>
+  </div>
+
+  <div class="status" id="status">สถานะ: รอการค้นหา</div>
+
+  <div class="legend">
+    <div class="box" style="background:#7cc8ff;border-color:#1E90FF"></div> น้ำ/แหล่งน้ำถาวร
+    <div class="box" style="background:#00aaff"></div> พื้นที่ที่ถูกแท็กว่า “น้ำท่วม/เสี่ยงน้ำท่วม”
+  </div>
+
+  <small class="muted">W/A/S/D = เคลื่อนที่ (ตามมุมกล้อง), Arrow = หมุน/เอียง, Tilt = กล้องเอียง 3D</small>
 </div>
 
 <script src="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js"></script>
 <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
 <script>
-const map=new maplibregl.Map({
+/* ====== Map Init with 3D Terrain & Sky ====== */
+const INITIAL_EXAGG = 1.3;
+
+const map = new maplibregl.Map({
   container:'map',
-  style:{version:8,sources:{'osm-tiles':{type:'raster',tiles:['https://a.tile.openstreetmap.org/{z}/{x}/{y}.png','https://b.tile.openstreetmap.org/{z}/{x}/{y}.png','https://c.tile.openstreetmap.org/{z}/{x}/{y}.png'],tileSize:256,attribution:'© OpenStreetMap contributors'}},layers:[{id:'osm-tiles',type:'raster',source:'osm-tiles'}]},
+  style:{
+    version:8,
+    sources:{
+      'osm-tiles':{
+        type:'raster',
+        tiles:[
+          'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
+          'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
+          'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png'
+        ],
+        tileSize:256,
+        attribution:'© OpenStreetMap contributors'
+      },
+      'satellite-tiles':{
+        type:'raster',
+        tiles:[
+          'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+        ],
+        tileSize:256,
+        attribution:'Imagery © Esri, Maxar, Earthstar Geographics'
+      },
+      // DEM สำหรับ Terrain 3D (ตัวอย่างจาก MapLibre)
+      'terrain-dem':{
+        type:'raster-dem',
+        url:'https://demotiles.maplibre.org/terrain-tiles/tiles.json',
+        tileSize:256
+      }
+    },
+    layers:[
+      { id:'osm-tiles', type:'raster', source:'osm-tiles' },
+      { id:'satellite-tiles', type:'raster', source:'satellite-tiles', layout:{ visibility:'none' } },
+      // ชั้นท้องฟ้าเพื่อความสมจริง
+      {
+        id:'sky',
+        type:'sky',
+        paint:{
+          'sky-type':'atmosphere',
+          'sky-atmosphere-sun':[0.0, 0.0],
+          'sky-atmosphere-sun-intensity':10
+        }
+      }
+    ],
+    terrain:{ source:'terrain-dem', exaggeration: INITIAL_EXAGG }
+  },
   center:[100.5018,13.7563],
   zoom:12,
-  pitch:45,
-  bearing:0,
-  attributionControl:true
+  pitch:55,
+  bearing:15,
+  attributionControl:true,
+  antialias:true
 });
 
+/* ====== UI Elements ====== */
 const btnSearch=document.getElementById('btnSearch');
 const searchInput=document.getElementById('search');
 const btnLocate=document.getElementById('btnLocate');
 const btnTilt=document.getElementById('btnTilt');
 const statusEl=document.getElementById('status');
+const baseSelect=document.getElementById('basemap');
+const exRange=document.getElementById('exaggeration');
+const exVal=document.getElementById('exVal');
 let tilted=true;
 
-function setStatus(txt,severity='info'){statusEl.textContent='สถานะ: '+txt;if(severity==='warn') statusEl.style.color='#b22222';else if(severity==='ok') statusEl.style.color='#137333';else statusEl.style.color='#222';}
+function setStatus(txt,severity='info'){
+  statusEl.textContent='สถานะ: '+txt;
+  statusEl.style.color = (severity==='warn') ? '#b22222' : (severity==='ok' ? '#137333' : '#222');
+}
 
+/* ====== Search (Nominatim) + Flood Loader (Overpass) ====== */
 async function searchLocation(query){
   try{
     setStatus('กำลังค้นหาพื้นที่...');
@@ -68,57 +150,176 @@ async function searchLocation(query){
     const data=await response.json();
     if(data.length===0) throw new Error('ไม่พบพื้นที่ที่ค้นหา');
     const {lat, lon}=data[0];
-    map.easeTo({center:[lon, lat], zoom:14});
-    loadGeoJSON(lat, lon);
-  }catch(e){setStatus('ไม่สามารถค้นหาพื้นที่ได้: '+e.message,'warn');}
+    map.easeTo({center:[+lon, +lat], zoom:14});
+    await loadFloodAround(+lat, +lon);
+  }catch(e){
+    setStatus('ไม่สามารถค้นหาพื้นที่ได้: '+e.message,'warn');
+  }
 }
-async function loadGeoJSON(lat, lon){
+
+function buildOverpassFloodQuery(lat,lon,r=5000){
+  return `
+    [out:json][timeout:25];
+    (
+      way(around:${r},${lat},${lon})["natural"="water"];
+      relation(around:${r},${lat},${lon})["natural"="water"];
+      way(around:${r},${lat},${lon})["waterway"="riverbank"];
+      relation(around:${r},${lat},${lon})["waterway"="riverbank"];
+      way(around:${r},${lat},${lon})["hazard"="flood"];
+      relation(around:${r},${lat},${lon})["hazard"="flood"];
+      way(around:${r},${lat},${lon})["flood_prone"="yes"];
+      relation(around:${r},${lat},${lon})["flood_prone"="yes"];
+      way(around:${r},${lat},${lon})["floodplain"="yes"];
+      relation(around:${r},${lat},${lon})["floodplain"="yes"];
+      way(around:${r},${lat},${lon})["flooded"="yes"];
+      relation(around:${r},${lat},${lon})["flooded"="yes"];
+    );
+    out body geom;
+  `.trim();
+}
+
+function elementsToFeatures(elements){
+  const features=[];
+  for(const el of elements){
+    if(el.type!=='way' || !el.geometry || el.geometry.length<3) continue;
+    const coords=el.geometry.map(p=>[p.lon,p.lat]);
+    const first=coords[0], last=coords[coords.length-1];
+    if(first[0]!==last[0] || first[1]!==last[1]) coords.push([first[0],first[1]]);
+    const tags=el.tags||{};
+    const isFlood = (tags.hazard==='flood') || (tags.flood_prone==='yes') || (tags.floodplain==='yes') || (tags.flooded==='yes') || (tags['flood:prone']==='yes');
+    features.push({ type:'Feature', geometry:{type:'Polygon',coordinates:[coords]}, properties:{...tags,__isFloodHazard:!!isFlood,__sourceId:el.id} });
+  }
+  return features;
+}
+
+async function loadFloodAround(lat,lon){
   try{
-    setStatus('กำลังโหลดข้อมูล GeoJSON...');
-    const overpass=`https://overpass-api.de/api/interpreter?data=[out:json];(way["natural"="water"](around:5000,${lat},${lon}););out;`;
-    const r=await fetch(overpass);
+    setStatus('กำลังโหลดข้อมูลพื้นที่น้ำ/น้ำท่วม (OSM/Overpass)...');
+    const overpassUrl='https://overpass-api.de/api/interpreter';
+    const q=buildOverpassFloodQuery(lat,lon,5000);
+    const r=await fetch(overpassUrl,{
+      method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},
+      body:'data='+encodeURIComponent(q)
+    });
     const d=await r.json();
-    const features=d.elements.filter(el=>el.geometry).map(el=>({type:'Feature',geometry:{type:'Polygon',coordinates:[el.geometry.map(p=>[p.lon,p.lat])]},properties:{}}));
-    const geojson={type:'FeatureCollection',features:features};
-    if(map.getLayer('flood-fill')) map.removeLayer('flood-fill');
-    if(map.getLayer('flood-line')) map.removeLayer('flood-line');
+    const features=elementsToFeatures(d.elements||[]);
+    const floodCount=features.filter(f=>f.properties.__isFloodHazard).length;
+    const waterCount=features.length - floodCount;
+    const geojson={type:'FeatureCollection',features};
+
+    // ล้างเดิมก่อนเติมใหม่
+    ['flood-fill','flood-line'].forEach(id=>{ if(map.getLayer(id)) map.removeLayer(id); });
     if(map.getSource('flood-geojson')) map.removeSource('flood-geojson');
+
     map.addSource('flood-geojson',{type:'geojson',data:geojson});
-    map.addLayer({id:'flood-fill',type:'fill',source:'flood-geojson',paint:{'fill-color':'#1E90FF','fill-opacity':0.35}});
-    map.addLayer({id:'flood-line',type:'line',source:'flood-geojson',paint:{'line-color':'#1E90FF','line-width':2}});
-    setStatus('โหลดข้อมูล GeoJSON สำเร็จ','ok');
-  }catch(e){setStatus('ไม่สามารถโหลดข้อมูล GeoJSON ได้: '+e.message,'warn');}
+    map.addLayer({
+      id:'flood-fill', type:'fill', source:'flood-geojson',
+      paint:{
+        'fill-color':[
+          'case',['boolean',['get','__isFloodHazard'],false],'#00aaff','#7cc8ff'
+        ],
+        'fill-opacity':[
+          'case',['boolean',['get','__isFloodHazard'],false],0.55,0.30
+        ]
+      }
+    });
+    map.addLayer({
+      id:'flood-line', type:'line', source:'flood-geojson',
+      paint:{
+        'line-color':['case',['boolean',['get','__isFloodHazard'],false],'#0088cc','#1E90FF'],
+        'line-width':2
+      }
+    });
+
+    if(features.length>0){
+      setStatus(`โหลดสำเร็จ: น้ำท่วม/เสี่ยง ${floodCount} โพลิกอน • น้ำ/แหล่งน้ำ ${waterCount} โพลิกอน`,'ok');
+    }else{
+      setStatus('ไม่พบข้อมูลน้ำ/น้ำท่วมในรัศมี 5 กม.','warn');
+    }
+  }catch(e){
+    setStatus('ไม่สามารถโหลดข้อมูลได้: '+e.message,'warn');
+  }
 }
 
-function toggleTilt(){tilted=!tilted;map.easeTo({pitch:tilted?45:0,bearing:tilted?20:0,duration:800});}
+/* ====== Base Toggle & Terrain Exaggeration ====== */
+function setBasemap(which){
+  const osm = (which==='osm');
+  map.setLayoutProperty('osm-tiles','visibility', osm ? 'visible' : 'none');
+  map.setLayoutProperty('satellite-tiles','visibility', osm ? 'none' : 'visible');
+}
+baseSelect.addEventListener('change', e => setBasemap(e.target.value));
 
-btnSearch.addEventListener('click',()=>{const q=searchInput.value.trim();if(q) searchLocation(q);});
-btnLocate.addEventListener('click',()=>{
-  if(!navigator.geolocation){alert('เบราว์เซอร์ไม่รองรับ Geolocation');return;}
-  navigator.geolocation.getCurrentPosition(pos=>{
-    const {latitude,longitude}=pos.coords;
-    map.easeTo({center:[longitude,latitude],zoom:14});
-    loadGeoJSON(latitude,longitude);
-  },err=>{alert('ไม่สามารถระบุตำแหน่ง: '+err.message);});
+exRange.addEventListener('input', e=>{
+  const v=parseFloat(e.target.value);
+  exVal.textContent=v.toFixed(1);
+  map.setTerrain({ source:'terrain-dem', exaggeration:v });
 });
+
+/* ====== Tilt Toggle ====== */
+function toggleTilt(){
+  tilted=!tilted;
+  map.easeTo({ pitch: tilted?60:0, bearing: tilted?map.getBearing():0, duration:800 });
+}
 btnTilt.addEventListener('click',toggleTilt);
 
+/* ====== Camera-relative Movement (WASD) ====== */
+function moveByBearing(deltaDeg, meters){
+  const c = map.getCenter();
+  const b = map.getBearing() + deltaDeg;
+  const km = meters / 1000;
+  const p = turf.destination([c.lng,c.lat], km, b, {units:'kilometers'}).geometry.coordinates;
+  map.easeTo({center:[p[0],p[1]], duration:150});
+}
+function stepMeters(){
+  // กำหนดระยะตามระดับซูม (ซูมเข้า = ก้าวสั้นลง)
+  const z = map.getZoom();
+  const m = 50 * Math.pow(2, (14 - z));
+  return Math.min(800, Math.max(15, m));
+}
 document.addEventListener('keydown',e=>{
-  const step=0.01; const rot=5; const pitchStep=5;
-  switch(e.key.toLowerCase()){
-    case'w':map.easeTo({center:[map.getCenter().lng,map.getCenter().lat+step]});break;
-    case's':map.easeTo({center:[map.getCenter().lng,map.getCenter().lat-step]});break;
-    case'a':map.easeTo({center:[map.getCenter().lng-step,map.getCenter().lat]});break;
-    case'd':map.easeTo({center:[map.getCenter().lng+step,map.getCenter().lat]});break;
-    case'arrowup':map.easeTo({pitch:map.getPitch()+pitchStep});break;
-    case'arrowdown':map.easeTo({pitch:map.getPitch()-pitchStep});break;
-    case'arrowleft':map.easeTo({bearing:map.getBearing()-rot});break;
-    case'arrowright':map.easeTo({bearing:map.getBearing()+rot});break;
+  const m = stepMeters();
+  const rot=5, pitchStep=5;
+  switch(e.key){
+    case 'w': case 'W': moveByBearing(0,   m); break;
+    case 's': case 'S': moveByBearing(180, m); break;
+    case 'a': case 'A': moveByBearing(-90, m); break;
+    case 'd': case 'D': moveByBearing(90,  m); break;
+    case 'ArrowUp':   map.easeTo({pitch: map.getPitch()+pitchStep}); break;
+    case 'ArrowDown': map.easeTo({pitch: Math.max(0, map.getPitch()-pitchStep)}); break;
+    case 'ArrowLeft': map.easeTo({bearing: map.getBearing()-rot}); break;
+    case 'ArrowRight':map.easeTo({bearing: map.getBearing()+rot}); break;
   }
 });
 
-map.on('load',()=>{setStatus('พร้อมใช้งาน — ค้นหาพื้นที่น้ำท่วมโดยพิมพ์ชื่อและกดค้นหา');});
+/* ====== Search & Locate ====== */
+btnSearch.addEventListener('click',()=>{
+  const q=searchInput.value.trim();
+  if(q) searchLocation(q);
+});
+searchInput.addEventListener('keydown',e=>{
+  if(e.key==='Enter'){
+    const q=searchInput.value.trim();
+    if(q) searchLocation(q);
+  }
+});
+btnLocate.addEventListener('click',()=>{
+  if(!navigator.geolocation){alert('เบราว์เซอร์ไม่รองรับ Geolocation');return;}
+  navigator.geolocation.getCurrentPosition(async pos=>{
+    const {latitude,longitude}=pos.coords;
+    map.easeTo({center:[longitude,latitude],zoom:14});
+    await loadFloodAround(latitude,longitude);
+  },err=>{alert('ไม่สามารถระบุตำแหน่ง: '+err.message);});
+});
+
+/* ====== On Load ====== */
+map.on('load',()=>{
+  setBasemap('osm'); // ค่าเริ่มต้น = แผนที่
+  exVal.textContent = INITIAL_EXAGG.toFixed(1);
+  setStatus('พร้อมใช้งาน — ค้นหาพื้นที่ แล้วระบบจะแสดงน้ำ/พื้นที่ที่ถูกแท็กว่า “น้ำท่วม/เสี่ยงน้ำท่วม” เป็นสีฟ้าเข้ม');
+  // ถ้าอยากให้โหลดพื้นที่รอบกรุงเทพอัตโนมัติ:
+  // loadFloodAround(13.7563,100.5018);
+});
 </script>
 </body>
 </html>
-
